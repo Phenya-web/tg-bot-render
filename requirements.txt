@@ -1,4 +1,6 @@
 fastapi
-aiogram==2.22.2
 gunicorn
 uvicorn
+aiogram==2.25.1
+gspread==5.12.0
+oauth2client==4.1.3
