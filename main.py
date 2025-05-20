@@ -5,27 +5,30 @@ from oauth2client.service_account import ServiceAccountCredentials
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
 
-# Конфигурация
+# Telegram bot token
 TOKEN = os.getenv("API_TOKEN")
-CHANNEL_ID = os.getenv("CHANNEL_ID")
+
+# Два ID каналов
+CHANNEL_1 = os.getenv("CHANNEL_ID")          # Пример: -1001234567890
+CHANNEL_2 = os.getenv("CHANNEL_CHAT_ID")     # Пример: -1009876543210
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher(bot)
 
-# Подключение к Google Таблице
+# Google Sheets API setup
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds = ServiceAccountCredentials.from_json_keyfile_name("bot-creds.json", scope)
 client = gspread.authorize(creds)
 sheet = client.open_by_key("1G5TYg6CJnEZygfiv6BeKnHuu-XirPQmlT4B2UFn19oc").sheet1
 
-# Память состояний пользователей
+# Хранилище шагов
 user_states = {}
 
 @dp.message_handler(commands=['start'])
 async def start(message: types.Message):
     user_id = str(message.from_user.id)
 
-    # Проверка: есть ли уже этот пользователь в таблице
+    # Проверка: уже есть в таблице?
     try:
         records = sheet.get_all_records()
         for row in records:
@@ -34,20 +37,31 @@ async def start(message: types.Message):
                 return
     except Exception as e:
         await message.reply("⚠️ Не удалось проверить таблицу.")
-        print("Ошибка при проверке таблицы:", e)
+        print("Ошибка чтения Google Sheets:", e)
 
-    # Проверка: подписан ли пользователь
-    try:
-        member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=int(user_id))
-        if member.status in ['member', 'administrator', 'creator']:
-            await message.reply("✅ Вы уже подписаны на канал.")
-            return
-    except:
-        pass
+    # Проверка подписки на оба канала
+    unsubscribed = []
+    for chat_id in [CHANNEL_1, CHANNEL_2]:
+        try:
+            member = await bot.get_chat_member(chat_id=chat_id, user_id=int(user_id))
+            if member.status not in ['member', 'administrator', 'creator']:
+                unsubscribed.append(chat_id)
+        except Exception as e:
+            print(f"⚠️ Не удалось проверить канал {chat_id}:", e)
+            unsubscribed.append(chat_id)
 
-    # Начало сбора данных
-    user_states[int(user_id)] = {'step': 'wait_name'}
-    await message.reply("📝 Введите ФИО:")
+    # Если подписан — сообщаем
+    if not unsubscribed:
+        await message.reply("✅ Вы уже подписаны на все каналы.")
+        return
+
+    # Начинаем сбор данных
+    user_states[int(user_id)] = {
+        'step': 'wait_name',
+        'unsubscribed': unsubscribed  # Сохраняем, чтобы знать, на какие каналы выдавать ссылку
+    }
+    await message.reply("Чтобы подписаться на каналы:")
+    await message.reply("📝 Введите ваше ФИО:")
 
 @dp.message_handler(lambda msg: msg.from_user.id in user_states)
 async def collect_data(message: types.Message):
@@ -57,27 +71,27 @@ async def collect_data(message: types.Message):
     if state['step'] == 'wait_name':
         state['name'] = message.text
         state['step'] = 'wait_course'
-        await message.reply("📚 Введите курс:")
+        await message.reply("📚 Введите ваш курс:")
     elif state['step'] == 'wait_course':
         state['course'] = message.text
         state['step'] = 'wait_group'
-        await message.reply("👥 Введите номер группы:")
+        await message.reply("👥 Введите номер вашей группы:")
     elif state['step'] == 'wait_group':
         state['group'] = message.text
 
-        # Повторная проверка — нет ли уже этого user_id
+        # Повторная проверка на дублирование
         try:
             records = sheet.get_all_records()
             for row in records:
                 if str(row.get("User ID")) == str(user_id):
-                    await message.reply("🔁 Вы уже получали ссылку. Повторная регистрация невозможна.")
+                    await message.reply("Вы уже регистрировались раннее.")
                     user_states.pop(user_id, None)
                     return
         except Exception as e:
-            await message.reply("⚠️ Не удалось проверить таблицу повторно.")
+            await message.reply("Не удалось проверить таблицу.")
             print("Ошибка повторной проверки:", e)
 
-        # Запись в таблицу
+        # Запись в Google Таблицу
         try:
             sheet.append_row([
                 datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -87,22 +101,29 @@ async def collect_data(message: types.Message):
                 state['group']
             ])
         except Exception as e:
-            await message.reply("⚠️ Не удалось записать в таблицу.")
+            await message.reply("Не удалось записать в таблицу.")
             print("Ошибка записи:", e)
 
-        # Генерация ссылки
-        try:
-            invite = await bot.create_chat_invite_link(
-                chat_id=CHANNEL_ID,
-                member_limit=1,
-                creates_join_request=False
-            )
-            await message.reply(
-                f"✅ Спасибо!\n🔗 Ваша персональная ссылка на канал:\n{invite.invite_link}"
-            )
-        except Exception as e:
-            await message.reply("❌ Не удалось создать ссылку.")
-            print("Ошибка при создании ссылки:", e)
+        # Генерация одноразовых ссылок
+        links = []
+        for chat_id in state.get('unsubscribed', []):
+            try:
+                invite = await bot.create_chat_invite_link(
+                    chat_id=chat_id,
+                    member_limit=1,
+                    creates_join_request=False
+                )
+                links.append(invite.invite_link)
+            except Exception as e:
+                await message.reply("Ошибка при создании ссылок.")
+                print("Ошибка при создании ссылки:", e)
+
+        # Отправка всех ссылок
+        if links:
+            text = "\n".join([f"🔗 {link}" for link in links])
+            await message.reply(f"✅ Спасибо!\nПодпишитесь на каналы по ссылкам:\n{text}")
+        else:
+            await message.reply("Ошибка при создании ссылок.")
 
         user_states.pop(user_id)
 
