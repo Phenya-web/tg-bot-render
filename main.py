@@ -60,8 +60,8 @@ async def start(message: types.Message):
         'step': 'wait_name',
         'unsubscribed': unsubscribed  # Сохраняем, чтобы знать, на какие каналы выдавать ссылку
     }
-    await message.reply("Чтобы подписаться на каналы:")
-    await message.reply("📝 Введите ваше ФИО:")
+    await message.reply("Здравствуйте! Для того, чтобы подписаться на канал, укажите ваши данные:")
+    await message.reply("📝 Введите ФИО:")
 
 @dp.message_handler(lambda msg: msg.from_user.id in user_states)
 async def collect_data(message: types.Message):
@@ -71,11 +71,11 @@ async def collect_data(message: types.Message):
     if state['step'] == 'wait_name':
         state['name'] = message.text
         state['step'] = 'wait_course'
-        await message.reply("📚 Введите ваш курс:")
+        await message.reply("📚 На каком вы курсе?")
     elif state['step'] == 'wait_course':
         state['course'] = message.text
         state['step'] = 'wait_group'
-        await message.reply("👥 Введите номер вашей группы:")
+        await message.reply("👥 Введите номер группы: \nПример: 501-93а")
     elif state['step'] == 'wait_group':
         state['group'] = message.text
 
@@ -121,7 +121,7 @@ async def collect_data(message: types.Message):
         # Отправка всех ссылок
         if links:
             text = "\n".join([f"🔗 {link}" for link in links])
-            await message.reply(f"✅ Спасибо!\nПодпишитесь на каналы по ссылкам:\n{text}")
+            await message.reply(f"✅ Успешная регистрация!\nСсылки на каналы:\n{text}")
         else:
             await message.reply("Ошибка при создании ссылок.")
 
