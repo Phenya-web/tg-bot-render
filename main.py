@@ -79,6 +79,9 @@ async def collect_data(message: types.Message):
     elif state['step'] == 'wait_group':
         state['group'] = message.text
 
+        tg_first_last = f"{message.from_user.first_name or ''} {message.from_user.last_name or ''}".strip()
+        tg_username = f"@{message.from_user.username}" if message.from_user.username else ""
+
         # Повторная проверка на дублирование
         try:
             records = sheet.get_all_records()
@@ -98,7 +101,9 @@ async def collect_data(message: types.Message):
                 str(user_id),
                 state['name'],
                 state['course'],
-                state['group']
+                state['group'],
+                tg_first_last,
+                tg_username
             ])
         except Exception as e:
             await message.reply("Не удалось записать в таблицу.")
