@@ -139,67 +139,63 @@ async def collect_data(message: types.Message):
         user_states.pop(user_id)
 
 
-# Команда /mute
 @dp.message_handler(commands=['mute'])
 async def mute_user(message: types.Message):
+    if message.chat.type not in ['group', 'supergroup']:
+        return
+
+    # Проверка: бот админ + автор команды админ
+    chat_id = message.chat.id
+    from_user = message.from_user
+
     if not message.reply_to_message:
-        return await message.reply("⚠️ Используйте /mute в ответ на сообщение.")
+        await message.reply("⛔ Команда /mute должна быть ответом на сообщение пользователя.")
+        return
 
-    if not await is_admin(message.chat.id, message.from_user.id):
-        return await message.reply("🚫 Только администратор может использовать эту команду.")
+    member = await bot.get_chat_member(chat_id, from_user.id)
+    if member.status not in ['administrator', 'creator']:
+        await message.reply("❌ Только администратор может использовать эту команду.")
+        return
 
-    args = message.get_args()
-    if not args:
-        return await message.reply("Укажите длительность: /mute 1h или /mute 3d")
+    # Парсим команду
+    parts = message.text.split(maxsplit=2)
+    if len(parts) < 2:
+        await message.reply("⚠️ Укажите срок мута. Пример: /mute 1h [причина]")
+        return
 
-    duration_map = {'h': 'hours', 'd': 'days'}
-    try:
-        unit = args[-1]
-        value = int(args[:-1])
-        if unit not in duration_map:
-            raise ValueError
-        mute_duration = timedelta(**{duration_map[unit]: value})
-    except:
-        return await message.reply("⚠️ Неверный формат. Пример: /mute 1h")
+    duration_str = parts[1]
+    reason = parts[2] if len(parts) > 2 else None
 
-    user_id = message.reply_to_message.from_user.id
-    until_date = datetime.datetime.utcnow() + mute_duration
+    # Конвертация времени
+    multiplier = {'m': 60, 'h': 3600, 'd': 86400}
+    unit = duration_str[-1]
+    if unit not in multiplier or not duration_str[:-1].isdigit():
+        await message.reply("❌ Неверный формат времени. Пример: 1h, 30m, 2d")
+        return
+
+    seconds = int(duration_str[:-1]) * multiplier[unit]
+    until_date = message.date + datetime.timedelta(seconds=seconds)
 
     try:
         await bot.restrict_chat_member(
-            chat_id=message.chat.id,
-            user_id=user_id,
+            chat_id=chat_id,
+            user_id=message.reply_to_message.from_user.id,
             permissions=types.ChatPermissions(can_send_messages=False),
             until_date=until_date
         )
-        await message.reply(f"✅ Пользователь заглушён на {value} {duration_map[unit]}")
+
+        username = message.reply_to_message.from_user.username
+        target = f"@{username}" if username else f"id {message.reply_to_message.from_user.id}"
+
+        text = f"🔇 {target} замучен на {duration_str}."
+        if reason:
+            text += f"\nПричина: {reason}"
+
+        await message.reply(text)
+
     except Exception as e:
-        await message.reply("❌ Не удалось заглушить пользователя.")
-        print("Mute error:", e)
-
-
-# Команда /unmute
-@dp.message_handler(commands=['unmute'])
-async def unmute_user(message: types.Message):
-    if not message.reply_to_message:
-        return await message.reply("⚠️ Используйте /unmute в ответ на сообщение.")
-
-    if not await is_admin(message.chat.id, message.from_user.id):
-        return await message.reply("🚫 Только администратор может использовать эту команду.")
-
-    user_id = message.reply_to_message.from_user.id
-
-    try:
-        await bot.restrict_chat_member(
-            chat_id=message.chat.id,
-            user_id=user_id,
-            permissions=types.ChatPermissions(can_send_messages=True)
-        )
-        await message.reply("✅ Пользователь разблокирован.")
-    except Exception as e:
-        await message.reply("❌ Не удалось разблокировать пользователя.")
-        print("Unmute error:", e)
-
+        await message.reply("❌ Не удалось выдать мут.")
+        print("Ошибка:", e)
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
