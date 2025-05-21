@@ -197,7 +197,6 @@ async def delete_replied_message(message: types.Message):
 
     try:
         await bot.delete_message(chat_id=chat_id, message_id=message.reply_to_message.message_id)
-        await message.reply("✅ Сообщение удалено.")
     except Exception as e:
         await message.reply("❌ Не удалось удалить сообщение.")
         print("Ошибка при удалении сообщения:", e)
