@@ -133,7 +133,7 @@ async def mute_user(message: types.Message):
         return
 
     if not message.reply_to_message:
-        await message.reply("⚠️ Используйте команду в ответ на сообщение пользователя.\nПример: /mute 1h причина")
+        await message.reply("⚠️ Вы должны ответить на сообщение пользователя, которого хотите замутить.")
         return
 
     target_user = message.reply_to_message.from_user
@@ -141,7 +141,6 @@ async def mute_user(message: types.Message):
     if len(parts) < 2:
         await message.reply("⚠️ Укажите срок мута. Пример: /mute 1h [причина]")
         return
-
     duration_str = parts[1]
     reason = parts[2] if len(parts) > 2 else None
 
@@ -162,7 +161,11 @@ async def mute_user(message: types.Message):
             until_date=until_date
         )
 
-        await bot.delete_message(chat_id=chat_id, message_id=message.reply_to_message.message_id)
+        # Удаление сообщения пользователя
+        try:
+            await bot.delete_message(chat_id, message.reply_to_message.message_id)
+        except Exception as e:
+            print("Не удалось удалить сообщение:", e)
 
         name = f"@{target_user.username}" if target_user.username else f"id {target_user.id}"
         text = f"🔇 {name} замучен на {duration_str}."
@@ -173,6 +176,7 @@ async def mute_user(message: types.Message):
     except Exception as e:
         await message.reply("❌ Не удалось замутить пользователя.")
         print("Ошибка mute:", e)
+
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
