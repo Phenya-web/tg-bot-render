@@ -4,31 +4,37 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
+from datetime import timedelta
 
-# Telegram bot token
+# Telegram bot token и ID каналов
 TOKEN = os.getenv("API_TOKEN")
-
-# Два ID каналов
-CHANNEL_1 = os.getenv("CHANNEL_ID")          # Пример: -1001234567890
-CHANNEL_2 = os.getenv("CHANNEL_CHAT_ID")     # Пример: -1009876543210
+CHANNEL_1 = os.getenv("CHANNEL_ID")
+CHANNEL_2 = os.getenv("CHANNEL_CHAT_ID")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher(bot)
 
-# Google Sheets API setup
+# Google Sheets setup
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds = ServiceAccountCredentials.from_json_keyfile_name("bot-creds.json", scope)
 client = gspread.authorize(creds)
 sheet = client.open_by_key("1G5TYg6CJnEZygfiv6BeKnHuu-XirPQmlT4B2UFn19oc").sheet1
 
-# Хранилище шагов
-user_states = {}
+user_states = {}  # Временное хранилище шагов
 
+
+# Проверка — админ ли пользователь
+async def is_admin(chat_id, user_id):
+    member = await bot.get_chat_member(chat_id, user_id)
+    return member.status in ['administrator', 'creator']
+
+
+# Команда /start
 @dp.message_handler(commands=['start'])
 async def start(message: types.Message):
     user_id = str(message.from_user.id)
 
-    # Проверка: уже есть в таблице?
+    # Проверка в таблице — уже есть?
     try:
         records = sheet.get_all_records()
         for row in records:
@@ -36,9 +42,10 @@ async def start(message: types.Message):
                 await message.reply("🔁 Вы уже получали ссылку. Пожалуйста, используйте ранее выданную.")
                 return
     except Exception as e:
+        await message.reply("⚠️ Не удалось проверить таблицу.")
         print("Ошибка чтения Google Sheets:", e)
 
-    # Проверка подписки на оба канала
+    # Проверка подписки
     unsubscribed = []
     for chat_id in [CHANNEL_1, CHANNEL_2]:
         try:
@@ -46,22 +53,23 @@ async def start(message: types.Message):
             if member.status not in ['member', 'administrator', 'creator']:
                 unsubscribed.append(chat_id)
         except Exception as e:
-            print(f"⚠️ Не удалось проверить канал {chat_id}:", e)
+            print(f"Ошибка при проверке {chat_id}:", e)
             unsubscribed.append(chat_id)
 
-    # Если подписан — сообщаем
     if not unsubscribed:
         await message.reply("✅ Вы уже подписаны на все каналы.")
         return
 
-    # Начинаем сбор данных
+    # Начинаем опрос
     user_states[int(user_id)] = {
         'step': 'wait_name',
-        'unsubscribed': unsubscribed  # Сохраняем, чтобы знать, на какие каналы выдавать ссылку
+        'unsubscribed': unsubscribed
     }
-    await message.reply("Здравствуйте! Для того, чтобы подписаться на канал, укажите ваши данные:")
+    await message.reply("Здравствуйте! Чтобы получить ссылку, укажите ваши данные.")
     await message.reply("📝 Введите ФИО:")
 
+
+# Опрос ФИО, курс, группа
 @dp.message_handler(lambda msg: msg.from_user.id in user_states)
 async def collect_data(message: types.Message):
     user_id = message.from_user.id
@@ -74,24 +82,21 @@ async def collect_data(message: types.Message):
     elif state['step'] == 'wait_course':
         state['course'] = message.text
         state['step'] = 'wait_group'
-        await message.reply("👥 Введите номер группы: \nПример: 501-93а")
+        await message.reply("👥 Введите номер группы:")
     elif state['step'] == 'wait_group':
         state['group'] = message.text
-
-        tg_first_last = f"{message.from_user.first_name or ''} {message.from_user.last_name or ''}".strip()
-        tg_username = f"@{message.from_user.username}" if message.from_user.username else ""
 
         # Повторная проверка на дублирование
         try:
             records = sheet.get_all_records()
             for row in records:
                 if str(row.get("User ID")) == str(user_id):
-                    await message.reply("Вы уже регистрировались раннее.")
+                    await message.reply("Вы уже регистрировались.")
                     user_states.pop(user_id, None)
                     return
         except Exception as e:
-            await message.reply("Не удалось проверить таблицу.")
-            print("Ошибка повторной проверки:", e)
+            await message.reply("Ошибка при проверке таблицы.")
+            print("Повторная проверка:", e)
 
         # Запись в Google Таблицу
         try:
@@ -101,14 +106,14 @@ async def collect_data(message: types.Message):
                 state['name'],
                 state['course'],
                 state['group'],
-                tg_first_last,
-                tg_username
+                f"@{message.from_user.username or ''}",
+                message.from_user.full_name or ''
             ])
         except Exception as e:
-            await message.reply("Не удалось записать в таблицу.")
+            await message.reply("Ошибка записи в таблицу.")
             print("Ошибка записи:", e)
 
-        # Генерация одноразовых ссылок
+        # Генерация ссылок
         links = []
         for chat_id in state.get('unsubscribed', []):
             try:
@@ -119,17 +124,79 @@ async def collect_data(message: types.Message):
                 )
                 links.append(invite.invite_link)
             except Exception as e:
-                await message.reply("Ошибка при создании ссылок.")
-                print("Ошибка при создании ссылки:", e)
+                await message.reply("Ошибка при создании ссылки.")
+                print("Ошибка ссылки:", e)
 
-        # Отправка всех ссылок
         if links:
             text = "\n".join([f"🔗 {link}" for link in links])
-            await message.reply(f"✅ Успешная регистрация!\nСсылки на каналы:\n{text}")
+            await message.reply(f"✅ Спасибо!\nВот ваши ссылки на каналы:\n{text}")
         else:
-            await message.reply("Ошибка при создании ссылок.")
+            await message.reply("Не удалось создать ссылки.")
 
         user_states.pop(user_id)
+
+
+# Команда /mute
+@dp.message_handler(commands=['mute'])
+async def mute_user(message: types.Message):
+    if not message.reply_to_message:
+        return await message.reply("⚠️ Используйте /mute в ответ на сообщение.")
+
+    if not await is_admin(message.chat.id, message.from_user.id):
+        return await message.reply("🚫 Только администратор может использовать эту команду.")
+
+    args = message.get_args()
+    if not args:
+        return await message.reply("Укажите длительность: /mute 1h или /mute 3d")
+
+    duration_map = {'h': 'hours', 'd': 'days'}
+    try:
+        unit = args[-1]
+        value = int(args[:-1])
+        if unit not in duration_map:
+            raise ValueError
+        mute_duration = timedelta(**{duration_map[unit]: value})
+    except:
+        return await message.reply("⚠️ Неверный формат. Пример: /mute 1h")
+
+    user_id = message.reply_to_message.from_user.id
+    until_date = datetime.datetime.utcnow() + mute_duration
+
+    try:
+        await bot.restrict_chat_member(
+            chat_id=message.chat.id,
+            user_id=user_id,
+            permissions=types.ChatPermissions(can_send_messages=False),
+            until_date=until_date
+        )
+        await message.reply(f"✅ Пользователь заглушён на {value} {duration_map[unit]}")
+    except Exception as e:
+        await message.reply("❌ Не удалось заглушить пользователя.")
+        print("Mute error:", e)
+
+
+# Команда /unmute
+@dp.message_handler(commands=['unmute'])
+async def unmute_user(message: types.Message):
+    if not message.reply_to_message:
+        return await message.reply("⚠️ Используйте /unmute в ответ на сообщение.")
+
+    if not await is_admin(message.chat.id, message.from_user.id):
+        return await message.reply("🚫 Только администратор может использовать эту команду.")
+
+    user_id = message.reply_to_message.from_user.id
+
+    try:
+        await bot.restrict_chat_member(
+            chat_id=message.chat.id,
+            user_id=user_id,
+            permissions=types.ChatPermissions(can_send_messages=True)
+        )
+        await message.reply("✅ Пользователь разблокирован.")
+    except Exception as e:
+        await message.reply("❌ Не удалось разблокировать пользователя.")
+        print("Unmute error:", e)
+
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
