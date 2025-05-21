@@ -33,8 +33,8 @@ async def is_admin(chat_id, user_id):
 @dp.message_handler(commands=['start'])
 async def start(message: types.Message):
     if message.chat.type != 'private':
-    await message.reply("Пожалуйста, напиши мне в ЛС.")
-    return
+        await message.reply("Пожалуйста, напиши мне в ЛС.")
+        return
     user_id = str(message.from_user.id)
 
     # Проверка в таблице — уже есть?
