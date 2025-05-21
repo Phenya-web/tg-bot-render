@@ -144,51 +144,27 @@ async def mute_user(message: types.Message):
     if message.chat.type not in ['group', 'supergroup']:
         return
 
+    # Проверка: бот админ + автор команды админ
     chat_id = message.chat.id
     from_user = message.from_user
 
-    # Проверка: админ ли отправитель
+    if not message.reply_to_message:
+        await message.reply("⛔ Команда /mute должна быть ответом на сообщение пользователя.")
+        return
+
     member = await bot.get_chat_member(chat_id, from_user.id)
     if member.status not in ['administrator', 'creator']:
         await message.reply("❌ Только администратор может использовать эту команду.")
         return
 
-    # === Вариант 1: Ответ на сообщение ===
-    if message.reply_to_message:
-        target_user = message.reply_to_message.from_user
-        parts = message.text.split(maxsplit=2)  # /mute 1h причина
-        if len(parts) < 2:
-            await message.reply("⚠️ Укажите срок мута. Пример: /mute 1h [причина]")
-            return
-        duration_str = parts[1]
-        reason = parts[2] if len(parts) > 2 else None
+    # Парсим команду
+    parts = message.text.split(maxsplit=2)
+    if len(parts) < 2:
+        await message.reply("⚠️ Укажите срок мута. Пример: /mute 1h [причина]")
+        return
 
-    # === Вариант 2: /mute @username 1h причина ===
-    else:
-        parts = message.text.split(maxsplit=3)
-        if len(parts) < 3:
-            await message.reply("⚠️ Укажите username и срок. Пример: /mute @user 1h [причина]")
-            return
-        username = parts[1].lstrip("@")
-        duration_str = parts[2]
-        reason = parts[3] if len(parts) > 3 else None
-
-        # Поиск пользователя по username
-        try:
-            target_user = None
-            chat_members = await bot.get_chat_administrators(chat_id)
-            for admin in chat_members:
-                if admin.user.username == username:
-                    target_user = admin.user
-                    break
-
-            if not target_user:
-                await message.reply("❌ Пользователь не найден в чате.")
-                return
-        except Exception as e:
-            await message.reply("⚠️ Ошибка при поиске пользователя.")
-            print("Ошибка поиска юзернейма:", e)
-            return
+    duration_str = parts[1]
+    reason = parts[2] if len(parts) > 2 else None
 
     # Конвертация времени
     multiplier = {'m': 60, 'h': 3600, 'd': 86400}
@@ -203,20 +179,23 @@ async def mute_user(message: types.Message):
     try:
         await bot.restrict_chat_member(
             chat_id=chat_id,
-            user_id=target_user.id,
+            user_id=message.reply_to_message.from_user.id,
             permissions=types.ChatPermissions(can_send_messages=False),
             until_date=until_date
         )
 
-        name = f"@{target_user.username}" if target_user.username else f"id {target_user.id}"
-        text = f"🔇 {name} замучен на {duration_str}."
+        username = message.reply_to_message.from_user.username
+        target = f"@{username}" if username else f"id {message.reply_to_message.from_user.id}"
+
+        text = f"🔇 {target} замучен на {duration_str}."
         if reason:
             text += f"\nПричина: {reason}"
+
         await message.reply(text)
 
     except Exception as e:
-        await message.reply("❌ Не удалось замутить пользователя.")
-        print("Ошибка mute:", e)
+        await message.reply("❌ Не удалось выдать мут.")
+        print("Ошибка:", e)
 
 
 if __name__ == '__main__':
