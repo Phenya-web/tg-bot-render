@@ -6,7 +6,6 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
 from datetime import timedelta
 
-# Telegram bot token и ID каналов
 TOKEN = os.getenv("API_TOKEN")
 CHANNEL_1 = os.getenv("CHANNEL_ID")
 CHANNEL_2 = os.getenv("CHANNEL_CHAT_ID")
@@ -14,19 +13,12 @@ CHANNEL_2 = os.getenv("CHANNEL_CHAT_ID")
 bot = Bot(token=TOKEN)
 dp = Dispatcher(bot)
 
-# Google Sheets setup
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds = ServiceAccountCredentials.from_json_keyfile_name("bot-creds.json", scope)
 client = gspread.authorize(creds)
 sheet = client.open_by_key("1G5TYg6CJnEZygfiv6BeKnHuu-XirPQmlT4B2UFn19oc").sheet1
 
-user_states = {}  # Временное хранилище шагов
-
-
-async def is_admin(chat_id, user_id):
-    member = await bot.get_chat_member(chat_id, user_id)
-    return member.status in ['administrator', 'creator']
-
+user_states = {}
 
 @dp.message_handler(commands=['start'])
 async def start(message: types.Message):
@@ -51,7 +43,7 @@ async def start(message: types.Message):
             member = await bot.get_chat_member(chat_id=chat_id, user_id=int(user_id))
             if member.status not in ['member', 'administrator', 'creator']:
                 unsubscribed.append(chat_id)
-        except Exception as e:
+        except:
             unsubscribed.append(chat_id)
 
     if not unsubscribed:
@@ -64,7 +56,6 @@ async def start(message: types.Message):
     }
     await message.reply("Здравствуйте! Чтобы получить ссылку, укажите ваши данные.")
     await message.reply("📝 Введите ФИО:")
-
 
 @dp.message_handler(lambda msg: msg.from_user.id in user_states)
 async def collect_data(message: types.Message):
@@ -81,6 +72,7 @@ async def collect_data(message: types.Message):
         await message.reply("👥 Введите номер группы:")
     elif state['step'] == 'wait_group':
         state['group'] = message.text
+
         try:
             records = sheet.get_all_records()
             for row in records:
@@ -127,7 +119,6 @@ async def collect_data(message: types.Message):
 
         user_states.pop(user_id)
 
-
 @dp.message_handler(commands=['mute'])
 async def mute_user(message: types.Message):
     if message.chat.type not in ['group', 'supergroup']:
@@ -141,34 +132,18 @@ async def mute_user(message: types.Message):
         await message.reply("❌ Только администратор может использовать эту команду.")
         return
 
-    target_user = None
-    duration_str = None
-    reason = None
+    if not message.reply_to_message:
+        await message.reply("⚠️ Используйте команду в ответ на сообщение пользователя.\nПример: /mute 1h причина")
+        return
 
-    if message.reply_to_message:
-        target_user = message.reply_to_message.from_user
-        parts = message.text.split(maxsplit=2)
-        if len(parts) < 2:
-            await message.reply("⚠️ Укажите срок мута. Пример: /mute 1h [причина]")
-            return
-        duration_str = parts[1]
-        reason = parts[2] if len(parts) > 2 else None
-    else:
-        parts = message.text.split(maxsplit=3)
-        if len(parts) < 3:
-            await message.reply("⚠️ Укажите username и срок. Пример: /mute @user 1h [причина]")
-            return
-        username = parts[1].lstrip("@")
-        duration_str = parts[2]
-        reason = parts[3] if len(parts) > 3 else None
+    target_user = message.reply_to_message.from_user
+    parts = message.text.split(maxsplit=2)
+    if len(parts) < 2:
+        await message.reply("⚠️ Укажите срок мута. Пример: /mute 1h [причина]")
+        return
 
-        try:
-            user_info = await bot.get_chat_member(chat_id, username)
-            target_user = user_info.user
-        except Exception as e:
-            await message.reply("❌ Не удалось найти пользователя в чате.")
-            print("Ошибка поиска по username:", e)
-            return
+    duration_str = parts[1]
+    reason = parts[2] if len(parts) > 2 else None
 
     multiplier = {'m': 60, 'h': 3600, 'd': 86400}
     unit = duration_str[-1]
@@ -187,6 +162,8 @@ async def mute_user(message: types.Message):
             until_date=until_date
         )
 
+        await bot.delete_message(chat_id=chat_id, message_id=message.reply_to_message.message_id)
+
         name = f"@{target_user.username}" if target_user.username else f"id {target_user.id}"
         text = f"🔇 {name} замучен на {duration_str}."
         if reason:
@@ -196,53 +173,6 @@ async def mute_user(message: types.Message):
     except Exception as e:
         await message.reply("❌ Не удалось замутить пользователя.")
         print("Ошибка mute:", e)
-
-
-@dp.message_handler(commands=['unmute'])
-async def unmute_user(message: types.Message):
-    if message.chat.type not in ['group', 'supergroup']:
-        return
-
-    chat_id = message.chat.id
-    from_user = message.from_user
-
-    member = await bot.get_chat_member(chat_id, from_user.id)
-    if member.status not in ['administrator', 'creator']:
-        await message.reply("❌ Только администратор может использовать эту команду.")
-        return
-
-    if message.reply_to_message:
-        target_user = message.reply_to_message.from_user
-    else:
-        parts = message.text.split(maxsplit=1)
-        if len(parts) < 2:
-            await message.reply("⚠️ Укажите username. Пример: /unmute @user")
-            return
-        username = parts[1].lstrip("@")
-        try:
-            user_info = await bot.get_chat_member(chat_id, username)
-            target_user = user_info.user
-        except Exception as e:
-            await message.reply("❌ Не удалось найти пользователя.")
-            print("Ошибка при unmute:", e)
-            return
-
-    try:
-        await bot.restrict_chat_member(
-            chat_id=chat_id,
-            user_id=target_user.id,
-            permissions=types.ChatPermissions(
-                can_send_messages=True,
-                can_send_media_messages=True,
-                can_send_other_messages=True,
-                can_add_web_page_previews=True
-            )
-        )
-        await message.reply(f"✅ Пользователь @{target_user.username} был размучен.")
-    except Exception as e:
-        await message.reply("❌ Не удалось размутить пользователя.")
-        print("Ошибка unmute:", e)
-
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
