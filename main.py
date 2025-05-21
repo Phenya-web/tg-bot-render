@@ -176,6 +176,31 @@ async def mute_user(message: types.Message):
     except Exception as e:
         await message.reply("❌ Не удалось замутить пользователя.")
         print("Ошибка mute:", e)
+        
+@dp.message_handler(commands=['del'])
+async def delete_replied_message(message: types.Message):
+    if message.chat.type not in ['group', 'supergroup']:
+        return
+
+    from_user = message.from_user
+    chat_id = message.chat.id
+
+    # Проверка на права администратора
+    member = await bot.get_chat_member(chat_id, from_user.id)
+    if member.status not in ['administrator', 'creator']:
+        await message.reply("❌ Только администратор может использовать эту команду.")
+        return
+
+    if not message.reply_to_message:
+        await message.reply("⚠️ Вы должны ответить на сообщение, которое хотите удалить.")
+        return
+
+    try:
+        await bot.delete_message(chat_id=chat_id, message_id=message.reply_to_message.message_id)
+        await message.reply("✅ Сообщение удалено.")
+    except Exception as e:
+        await message.reply("❌ Не удалось удалить сообщение.")
+        print("Ошибка при удалении сообщения:", e)
 
 
 if __name__ == '__main__':
