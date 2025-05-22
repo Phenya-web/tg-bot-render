@@ -129,7 +129,6 @@ async def mute_user(message: types.Message):
 
     member = await bot.get_chat_member(chat_id, from_user.id)
     if member.status not in ['administrator', 'creator']:
-        await message.reply("❌ Только администратор может использовать эту команду.")
         return
 
     if not message.reply_to_message:
@@ -188,7 +187,6 @@ async def delete_replied_message(message: types.Message):
     # Проверка на права администратора
     member = await bot.get_chat_member(chat_id, from_user.id)
     if member.status not in ['administrator', 'creator']:
-        await message.reply("❌ Только администратор может использовать эту команду.")
         return
 
     if not message.reply_to_message:
