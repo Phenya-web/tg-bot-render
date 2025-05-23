@@ -1,6 +1,7 @@
 import os
 import datetime
 import gspread
+import asyncio
 from oauth2client.service_account import ServiceAccountCredentials
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
@@ -194,7 +195,17 @@ async def delete_replied_message(message: types.Message):
         return
 
     try:
+        # Удаляем сообщение, на которое ответили
         await bot.delete_message(chat_id=chat_id, message_id=message.reply_to_message.message_id)
+
+        # Удаляем саму команду /del
+        await bot.delete_message(chat_id=chat_id, message_id=message.message_id)
+
+        # Отправляем уведомление и удаляем через 3 секунды
+        confirm = await message.answer("Сообщение удалено")
+        await asyncio.sleep(3)
+        await bot.delete_message(chat_id=chat_id, message_id=confirm.message_id)
+
     except Exception as e:
         await message.reply("❌ Не удалось удалить сообщение.")
         print("Ошибка при удалении сообщения:", e)
