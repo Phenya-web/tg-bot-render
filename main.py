@@ -212,31 +212,19 @@ async def delete_replied_message(message: types.Message):
         print("Ошибка при удалении сообщения:", e)
 
 
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
 @dp.message_handler(commands=['post'])
-async def post_with_button(message: types.Message):
-    if message.chat.type not in ['group', 'supergroup']:
-        return
-
+async def send_post(message: types.Message):
     keyboard = InlineKeyboardMarkup().add(
-        InlineKeyboardButton("Удалить", callback_data="delete_post")
+        InlineKeyboardButton("Тест", callback_data="my_button_pressed")
     )
+    await message.answer("test", reply_markup=keyboard)
 
-    await bot.send_message(
-        chat_id=message.chat.id,
-        text="Тест",
-        reply_markup=keyboard
-    )
+@dp.callback_query_handler(lambda c: c.data == 'my_button_pressed')
+async def process_callback_button(callback_query: types.CallbackQuery):
+    await callback_query.answer("Тест", show_alert=True)
     
-@dp.callback_query_handler(lambda c: c.data == 'delete_post')
-async def handle_delete_callback(callback_query: types.CallbackQuery):
-    try:
-        await bot.delete_message(
-            chat_id=callback_query.message.chat.id,
-            message_id=callback_query.message.message_id
-        )
-    except Exception as e:
-        await callback_query.answer("❌ Не удалось удалить", show_alert=True)
-
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
