@@ -6,6 +6,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
 from datetime import timedelta
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 TOKEN = os.getenv("API_TOKEN")
 CHANNEL_1 = os.getenv("CHANNEL_ID")
@@ -209,6 +210,32 @@ async def delete_replied_message(message: types.Message):
     except Exception as e:
         await message.reply("❌ Не удалось удалить сообщение.")
         print("Ошибка при удалении сообщения:", e)
+
+
+@dp.message_handler(commands=['post'])
+async def post_with_button(message: types.Message):
+    if message.chat.type not in ['group', 'supergroup']:
+        return
+
+    keyboard = InlineKeyboardMarkup().add(
+        InlineKeyboardButton("Удалить", callback_data="delete_post")
+    )
+
+    await bot.send_message(
+        chat_id=message.chat.id,
+        text="Тест",
+        reply_markup=keyboard
+    )
+    
+@dp.callback_query_handler(lambda c: c.data == 'delete_post')
+async def handle_delete_callback(callback_query: types.CallbackQuery):
+    try:
+        await bot.delete_message(
+            chat_id=callback_query.message.chat.id,
+            message_id=callback_query.message.message_id
+        )
+    except Exception as e:
+        await callback_query.answer("❌ Не удалось удалить", show_alert=True)
 
 
 if __name__ == '__main__':
